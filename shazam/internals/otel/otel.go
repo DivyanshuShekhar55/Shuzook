@@ -13,12 +13,14 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/log"
 	"go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/resource"
 	"go.opentelemetry.io/otel/sdk/trace"
+	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 )
 
-// setupOTelSDK bootstraps the OpenTelemetry pipeline.
+// SetupOTelSDK bootstraps the OpenTelemetry pipeline.
 // If it does not return an error, make sure to call shutdown for proper cleanup.
-func setupOTelSDK(ctx context.Context) (func(context.Context) error, error) {
+func SetupOTelSDK(ctx context.Context) (func(context.Context) error, error) {
 	var shutdownFuncs []func(context.Context) error
 	var err error
 
@@ -86,10 +88,28 @@ func newTracerProvider() (*trace.TracerProvider, error) {
 		return nil, err
 	}
 
+	// Resource describes this service to any backend receiving the spans.
+	// ServiceName is what shows up as the label in Jaeger, Grafana Tempo, etc.
+	// resource.Default() auto-adds hostname, OS, process info on top of that.
+	res, err := resource.Merge(
+		resource.Default(),
+		resource.NewWithAttributes(
+			semconv.SchemaURL,
+			semconv.ServiceName("your-service-name"),
+			semconv.ServiceVersion("0.1.0"),
+		),
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	tracerProvider := trace.NewTracerProvider(
 		trace.WithBatcher(traceExporter,
-			// Default is 5s
+			// Default is 5s. 10s means fewer flushes but spans appear
+			// in the backend slightly later. Fine for most services;
+			// lower this if you need near-realtime span visibility.
 			trace.WithBatchTimeout(10*time.Second)),
+		trace.WithResource(res),
 	)
 	return tracerProvider, nil
 }
