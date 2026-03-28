@@ -10,6 +10,9 @@ import (
 	"os"
 	"os/signal"
 	"time"
+
+	"github.com/DivyanshuShekhar55/Shuzook/internals/otel"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 type application struct {
@@ -39,6 +42,16 @@ func run() (err error) {
 	defer stop()
 
 	app := &application{config: cfg}
+
+	// Set up OpenTelemetry.
+	otelShutdown, err := otel.SetupOTelSDK(ctx)
+	if err != nil {
+		return err
+	}
+	// Handle shutdown properly so nothing leaks.
+	defer func() {
+		err = errors.Join(err, otelShutdown(context.Background()))
+	}()
 
 	// Start HTTP server.
 	srv := &http.Server{
@@ -86,7 +99,9 @@ func (app *application) routes() http.Handler {
 	// mux.HandleFunc("/rolldice/", rolldice)
 	// mux.HandleFunc("/rolldice/{player}", rolldice)
 
-	return mux
+	mux.HandleFunc("/logic", SomeLogic)
+	handler := otelhttp.NewHandler(mux, "/")
+	return handler
 }
 
 func envOrDefault(key, fallback string) string {
