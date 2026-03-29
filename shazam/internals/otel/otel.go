@@ -95,7 +95,7 @@ func newTracerProvider() (*trace.TracerProvider, error) {
 		resource.Default(),
 		resource.NewWithAttributes(
 			semconv.SchemaURL,
-			semconv.ServiceName("your-service-name"),
+			semconv.ServiceName("shazam"),
 			semconv.ServiceVersion("0.1.0"),
 		),
 	)

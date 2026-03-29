@@ -95,11 +95,10 @@ func run() (err error) {
 func (app *application) routes() http.Handler {
 	mux := http.NewServeMux()
 
-	// Register handlers.
-	// mux.HandleFunc("/rolldice/", rolldice)
-	// mux.HandleFunc("/rolldice/{player}", rolldice)
-
-	mux.HandleFunc("/logic", SomeLogic)
+	// Register handlers
+	mux.HandleFunc("/auto", AutoSpan)
+	mux.HandleFunc("/manual", SomeLogic)
+	mux.HandleFunc("/child", ChildLogic)
 	handler := otelhttp.NewHandler(mux, "/")
 	return handler
 }
