@@ -13,10 +13,12 @@ import (
 
 	"github.com/DivyanshuShekhar55/Shuzook/internals/otel"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.uber.org/zap"
 )
 
 type application struct {
 	config config
+	logger *zap.Logger
 }
 
 type config struct {
@@ -41,8 +43,6 @@ func run() (err error) {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	app := &application{config: cfg}
-
 	// Set up OpenTelemetry.
 	otelShutdown, err := otel.SetupOTelSDK(ctx)
 	if err != nil {
@@ -52,6 +52,16 @@ func run() (err error) {
 	defer func() {
 		err = errors.Join(err, otelShutdown(context.Background()))
 	}()
+
+	logger, err := newZapLogger()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		err = errors.Join(err, logger.Sync())
+	}()
+
+	app := &application{config: cfg, logger: logger}
 
 	// Start HTTP server.
 	srv := &http.Server{
@@ -64,7 +74,11 @@ func run() (err error) {
 	}
 	srvErr := make(chan error, 1)
 	go func() {
-		log.Printf("starting %s server on %s", cfg.env, cfg.addr)
+		app.logger.Info(
+			"starting server",
+			zap.String("env", cfg.env),
+			zap.String("addr", cfg.addr),
+		)
 		srvErr <- srv.ListenAndServe()
 	}()
 
@@ -99,6 +113,7 @@ func (app *application) routes() http.Handler {
 	mux.HandleFunc("/auto", AutoSpan)
 	mux.HandleFunc("/manual", SomeLogic)
 	mux.HandleFunc("/child", ChildLogic)
+	app.registerLoggerRoutes(mux)
 	handler := otelhttp.NewHandler(mux, "/")
 	return handler
 }
