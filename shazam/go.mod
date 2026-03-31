@@ -3,6 +3,7 @@ module github.com/DivyanshuShekhar55/Shuzook
 go 1.25.0
 
 require (
+	go.opentelemetry.io/contrib/bridges/otelzap v0.17.0
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.67.0
 	go.opentelemetry.io/otel v1.42.0
 	go.opentelemetry.io/otel/exporters/stdout/stdoutlog v0.18.0

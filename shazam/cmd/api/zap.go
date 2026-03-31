@@ -2,7 +2,11 @@ package main
 
 import (
 	"context"
+	"os"
 
+	"go.opentelemetry.io/contrib/bridges/otelzap"
+	"go.opentelemetry.io/otel/attribute"
+	otellogglobal "go.opentelemetry.io/otel/log/global"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -14,18 +18,25 @@ var gitCommitHash = "dev"
 
 func newZapLogger() (*zap.Logger, error) {
 	cfg := zap.NewProductionConfig()
-	cfg.Encoding = "json" // not required cause its already in json, but just for showing
-	cfg.OutputPaths = []string{"stdout"} // swap with external db or stdout
-	cfg.ErrorOutputPaths = []string{"stderr"} //swap with external db or stderr
+	cfg.Encoding = "json"
 	cfg.EncoderConfig.TimeKey = "time"
-	cfg.EncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder // show iso time instead of the normal millisecond one
+	cfg.EncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
 
-	logger, err := cfg.Build(
+	encoder := zapcore.NewJSONEncoder(cfg.EncoderConfig)
+	jsonCore := zapcore.NewCore(encoder, zapcore.AddSync(os.Stdout), cfg.Level)
+	otelCore := otelzap.NewCore(
+		"github.com/DivyanshuShekhar55/Shuzook/cmd/api",
+		otelzap.WithVersion("0.1.0"),
+		otelzap.WithLoggerProvider(otellogglobal.GetLoggerProvider()),
+		otelzap.WithAttributes(attribute.String("git.commit", envOrDefault("GIT_COMMIT_HASH", gitCommitHash))),
+	)
+
+	core := zapcore.NewTee(jsonCore, otelCore)
+	logger := zap.New(
+		core,
+		zap.AddCaller(),
 		zap.AddStacktrace(zapcore.ErrorLevel),
 	)
-	if err != nil {
-		return nil, err
-	}
 
 	commit := envOrDefault("GIT_COMMIT_HASH", gitCommitHash)
 	if commit == "" {
@@ -35,11 +46,10 @@ func newZapLogger() (*zap.Logger, error) {
 	return logger.With(zap.String("git_commit", commit)), nil
 }
 
-
 /*
-	when otel creates a span it stores it in context, we pull some metadata out from that context
-	so all logs automatically get there trace and span id
-	the following function implements that
+when otel creates a span it stores it in context, we pull some metadata out from that context
+so all logs automatically get there trace and span id
+the following function implements that
 */
 func traceFieldsFromContext(ctx context.Context) []zap.Field {
 	sc := trace.SpanContextFromContext(ctx)
@@ -54,8 +64,8 @@ func traceFieldsFromContext(ctx context.Context) []zap.Field {
 }
 
 /*
-	the following function is used to show the trace and span data in the log in addition to already exisiting things
-	take the context and extract the trace and span from it
+the following function is used to show the trace and span data in the log in addition to already exisiting things
+take the context and extract the trace and span from it
 */
 func (app *application) logInfoCtx(ctx context.Context, msg string, fields ...zap.Field) {
 	if app.logger == nil {
@@ -63,6 +73,7 @@ func (app *application) logInfoCtx(ctx context.Context, msg string, fields ...za
 	}
 
 	allFields := append(fields, traceFieldsFromContext(ctx)...)
+	allFields = append(allFields, zap.Any("context", ctx))
 	app.logger.Info(msg, allFields...)
 }
 
@@ -73,5 +84,6 @@ func (app *application) logErrorCtx(ctx context.Context, msg string, err error, 
 
 	allFields := append(fields, zap.Error(err))
 	allFields = append(allFields, traceFieldsFromContext(ctx)...)
+	allFields = append(allFields, zap.Any("context", ctx))
 	app.logger.Error(msg, allFields...)
 }
