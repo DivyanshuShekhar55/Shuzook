@@ -93,8 +93,7 @@ func newTracerProvider() (*trace.TracerProvider, error) {
 	// resource.Default() auto-adds hostname, OS, process info on top of that.
 	res, err := resource.Merge(
 		resource.Default(),
-		resource.NewWithAttributes(
-			semconv.SchemaURL,
+		resource.NewSchemaless(
 			semconv.ServiceName("shazam"),
 			semconv.ServiceVersion("0.1.0"),
 		),
