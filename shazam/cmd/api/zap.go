@@ -18,7 +18,6 @@ var gitCommitHash = "dev"
 
 func newZapLogger() (*zap.Logger, error) {
 	cfg := zap.NewProductionConfig()
-	cfg.Encoding = "json"
 	cfg.EncoderConfig.TimeKey = "time"
 	cfg.EncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
 

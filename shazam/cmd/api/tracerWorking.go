@@ -12,6 +12,12 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 )
 
+func (app *application) registerTracingRoutes(mux *http.ServeMux){
+	mux.HandleFunc("/auto", AutoSpan)
+	mux.HandleFunc("/manual", SomeLogic)
+	mux.HandleFunc("/child", ChildLogic)
+}
+
 /*
 	we create a custom span here, the var tracer created is usually created per package
 	don't think abt exporting it from internal/otel because then all packages would be dependent on it
