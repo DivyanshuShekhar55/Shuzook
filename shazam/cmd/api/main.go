@@ -16,9 +16,20 @@ import (
 	"go.uber.org/zap"
 )
 
+/*
+Why we ignore tracer in the application struct ?
+In logging : there is setup cost — file handles, buffers, the OTel bridge core — so you genuinely want to do it once and share it.
+Other packages that need logging would receive the logger via dependency injection
+same with metrics, create it once, pass around in packages
+
+in tracerWorking.go (main package) : var tracer = otel.Tracer("myapp/main"), i.e., we put a name to tracers, which helps us identify the package the trace belongs to
+So we create the "tracer" variable per package usually
+otel.Tracer(...) is NOT creating a new tracer provider. The provider was already created once in otel.go and registered globally. `otel.Tracer(...)` just gets a lightweight named handle from that provider. Low cost action
+*/
 type application struct {
-	config config
-	logger *zap.Logger
+	config  config
+	logger  *zap.Logger
+	metrics *apiMetrics
 }
 
 type config struct {
@@ -62,6 +73,13 @@ func run() (err error) {
 	}()
 
 	app := &application{config: cfg, logger: logger}
+
+	// init the metrics and attach to the application struct instance
+	metrics, err := newAPIMetrics()
+	if err != nil {
+		return err
+	}
+	app.metrics = metrics
 
 	// Start HTTP server.
 	srv := &http.Server{
@@ -110,10 +128,9 @@ func (app *application) routes() http.Handler {
 	mux := http.NewServeMux()
 
 	// Register handlers
-	mux.HandleFunc("/auto", AutoSpan)
-	mux.HandleFunc("/manual", SomeLogic)
-	mux.HandleFunc("/child", ChildLogic)
+	app.registerTracingRoutes(mux)
 	app.registerLoggerRoutes(mux)
+	app.registerMetricsRoutes(mux)
 	handler := otelhttp.NewHandler(mux, "/")
 	return handler
 }
