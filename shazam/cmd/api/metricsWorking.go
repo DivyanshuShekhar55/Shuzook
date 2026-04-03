@@ -3,11 +3,8 @@ package main
 import (
 	"context"
 	"fmt"
-	"math"
 	"math/rand"
 	"net/http"
-	"sort"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -16,20 +13,27 @@ import (
 	"go.opentelemetry.io/otel/metric"
 )
 
+/*
+we can create global vars for the meter instruments, but with the struct we can group them cleanly
+
+otel would collect data for latencies and auto group them into buckets
+so it would look like 2 reqs done in 50ms, 5 reqs in 120ms, ...
+tools like grafana or click-stack would auto calculate the percentile values (p50, p90, etc)
+
+otel also groups by request attributes (route, httpStatus, etc)
+these attrubutes are added in the finishRequest() function
+*/
+
 type apiMetrics struct {
-	requestsTotal metric.Int64Counter 
+	requestsTotal metric.Int64Counter
 	inflightNow   atomic.Int64 // in-progress requests
 	inflightAsync metric.Int64ObservableUpDownCounter
 	latencyMs     metric.Float64Histogram
-
-	mu         sync.Mutex
-	recentMs   []float64
-	maxSamples int
 }
 
 func newAPIMetrics() (*apiMetrics, error) {
 	meter := otel.Meter("shazam/cmd/api/metrics")
-	m := &apiMetrics{maxSamples: 512}
+	m := &apiMetrics{}
 
 	// initialise the various meter instruments we want to use
 	var err error
@@ -74,7 +78,6 @@ func (m *apiMetrics) registerMetricsRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/metrics/counter", m.counterRoute)
 	mux.HandleFunc("/metrics/async-updown", m.asyncUpDownRoute)
 	mux.HandleFunc("/metrics/histogram", m.histogramRoute)
-	mux.HandleFunc("/metrics/p95", m.p95Route)
 }
 
 func (app *application) registerMetricsRoutes(mux *http.ServeMux) {
@@ -101,7 +104,7 @@ func (m *apiMetrics) asyncUpDownRoute(w http.ResponseWriter, r *http.Request) {
 	defer m.finishRequest(r, "/metrics/async-updown", http.StatusOK, start)
 
 	// Hold the request a little for demonstration purpose
-	time.Sleep(1500 * time.Millisecond)
+	time.Sleep(3500 * time.Millisecond)
 
 	w.Header().Set("Content-Type", "text/plain")
 	w.WriteHeader(http.StatusOK)
@@ -122,18 +125,6 @@ func (m *apiMetrics) histogramRoute(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "histogram recorded a request duration around %dms", delayMs)
 }
 
-func (m *apiMetrics) p95Route(w http.ResponseWriter, r *http.Request) {
-	start := time.Now()
-	m.inflightNow.Add(1)
-	defer m.finishRequest(r, "/metrics/p95", http.StatusOK, start)
-
-	p95, count := m.estimateP95()
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	fmt.Fprintf(w, "{\"samples\":%d,\"p95_ms\":%.2f}\n", count, p95)
-}
-
 func (m *apiMetrics) finishRequest(r *http.Request, route string, status int, start time.Time) {
 	durationMs := float64(time.Since(start)) / float64(time.Millisecond)
 	attrs := []attribute.KeyValue{
@@ -144,40 +135,5 @@ func (m *apiMetrics) finishRequest(r *http.Request, route string, status int, st
 
 	m.requestsTotal.Add(r.Context(), 1, metric.WithAttributes(attrs...))
 	m.latencyMs.Record(r.Context(), durationMs, metric.WithAttributes(attrs...))
-	m.appendLatency(durationMs)
 	m.inflightNow.Add(-1)
-}
-
-func (m *apiMetrics) appendLatency(ms float64) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	m.recentMs = append(m.recentMs, ms)
-	if len(m.recentMs) > m.maxSamples {
-		m.recentMs = m.recentMs[len(m.recentMs)-m.maxSamples:]
-	}
-}
-
-func (m *apiMetrics) estimateP95() (float64, int) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	count := len(m.recentMs)
-	if count == 0 {
-		return 0, 0
-	}
-
-	sorted := make([]float64, count)
-	copy(sorted, m.recentMs)
-	sort.Float64s(sorted)
-
-	idx := int(math.Ceil(0.95*float64(count))) - 1
-	if idx < 0 {
-		idx = 0
-	}
-	if idx >= count {
-		idx = count - 1
-	}
-
-	return sorted[idx], count
 }
