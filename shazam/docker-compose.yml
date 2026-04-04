@@ -1,0 +1,56 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: cmd/api/Dockerfile
+    container_name: shazam-api
+    environment:
+      SHAZOOK_ADDR: ":8080"
+      SHAZOOK_ENV: "docker"
+      SHAZOOK_LOG_FILE: "/var/log/shazam/shazam.log"
+      SHAZOOK_LOG_MAX_SIZE_MB: "20"
+      SHAZOOK_LOG_MAX_BACKUPS: "7"
+      SHAZOOK_LOG_MAX_AGE_DAYS: "14"
+      GIT_COMMIT_HASH: "dev-docker"
+    volumes:
+      - app_logs:/var/log/shazam
+    ports:
+      - "8081:8080"
+    restart: unless-stopped
+
+  clickstack:
+    image: clickhouse/clickstack-all-in-one:latest
+    container_name: shazam-clickstack
+    volumes:
+      - clickstack_db:/data/db
+      - clickstack_data:/var/lib/clickhouse
+      - clickstack_logs:/var/log/clickhouse-server
+      - ./clickhouse/init:/docker-entrypoint-initdb.d
+    ports:
+      - "8080:8080"
+      - "4317:4317"
+      - "4318:4318"
+      - "8123:8123"
+      - "9000:9000"
+    restart: unless-stopped
+
+  fluent-bit:
+    image: fluent/fluent-bit:3.1
+    container_name: shazam-fluent-bit
+    depends_on:
+      - clickstack
+      - api
+    command: ["/fluent-bit/bin/fluent-bit", "-c", "/fluent-bit/etc/fluent-bit.conf"]
+    volumes:
+      - app_logs:/var/log/shazam:ro
+      - ./fluent-bit/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro
+      - ./fluent-bit/parsers.conf:/fluent-bit/etc/parsers.conf:ro
+      - fluentbit_state:/fluent-bit/state
+    restart: unless-stopped
+
+volumes:
+  app_logs:
+  clickstack_db:
+  clickstack_data:
+  clickstack_logs:
+  fluentbit_state:
