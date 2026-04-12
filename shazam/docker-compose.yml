@@ -27,7 +27,7 @@ services:
       - clickstack_logs:/var/log/clickhouse-server
       - ./clickhouse/init:/docker-entrypoint-initdb.d
     ports:
-      - "8080:8080"
+      - "18080:8080"
       - "4317:4317"
       - "4318:4318"
       - "8123:8123"

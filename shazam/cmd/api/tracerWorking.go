@@ -29,7 +29,7 @@ func SomeLogic(w http.ResponseWriter, r *http.Request) {
 
 	/*
 		give spans the context of the request (usual way)
-		give them a name to identify, we call them "logic" here
+		give them a name to identify, we call them "manual" here
 		the first return value is context itself, which is useful when you want to create nested spans
 	*/
 	_, span := tracer.Start(r.Context(), "manual")
